@@ -13,55 +13,71 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
 # ==========================================
-# 1. Dynamic Configuration Dictionary
+# 1. 动态配置字典 (已添加 protocol 支持)
 # ==========================================
 STREAM_CONFIGS = {
     "dota2": {
-        "title": "Dota 2 2K HEVC Stream",
-        "description": "Auto-streaming via RTX 3070.\n#Dota2 #HEVC",
+        "title": "Dota 2 实况 (HEVC 2K HLS-VBR)",
+        "description": "NVENC HEVC 自动推流。\n#Dota2 #RTX3070",
+        "category_id": "20",
+        "width": 2560,        
+        "height": 1440,
+        "fps": 60,
+        "rate_control": "VBR",    # Changed to VBR as requested (CBR is still recommended)
+        "bitrate": "6000",        # Target Bitrate
+        "max_bitrate": "8000",    # Hard cap for VBR spikes
+        "stream_key_title": "AutoKey-Dota2-HLS-VBR",
+        "keyframe_sec": 2,
+        "protocol": "hls"    # <--- 新增：指定使用 hls 协议
+    },
+    "dota2-hls-cbr": {
+        "title": "Dota 2 实况 (HEVC 2K HLS-CBR)",
+        "description": "NVENC HEVC 自动推流。\n#Dota2 #RTX3070",
         "category_id": "20",
         "width": 2560,        
         "height": 1440,
         "fps": 60,
         "rate_control": "CBR",
-        "bitrate": "10000", 
-        "max_bitrate": "18000", 
-        "stream_key_title": "AutoKey-Dota2-HEVC",
-        "keyframe_sec": 2
+        "bitrate": "13500", 
+        "stream_key_title": "AutoKey-Dota2-HLS-CBR",
+        "keyframe_sec": 2,
+        "protocol": "hls"    # <--- 新增：指定使用 hls 协议
     },
-    "dota2-vbr": {
-        "title": "Dota 2 天梯冲分实况",
-        "description": "自动推流测试。\n#Dota2 #Gaming",
+    "dota2-rtmp": {
+        "title": "Dota 2 实况 (HEVC 2K)",
+        "description": "NVENC HEVC 自动推流。\n#Dota2 #RTX3070",
         "category_id": "20",
         "width": 2560,        
         "height": 1440,
         "fps": 60,
-        "rate_control": "VBR",     # Changed to VBR as requested (CBR is still recommended)
-        "bitrate": "13500",        # Target Bitrate
-        "max_bitrate": "18000",    # Hard cap for VBR spikes
-        "stream_key_title": "AutoKey-Dota2-vbr",
-        "keyframe_sec": 2
+        "rate_control": "CBR",
+        "bitrate": "13500", 
+        "stream_key_title": "AutoKey-Dota2-RTMP",
+        "keyframe_sec": 2,
+        "protocol": "rtmp"    # <--- 新增：指定使用 rtmp 协议
     },
     "coding": {
         "title": "编程实况: 系统维护与脚本开发",
-        "description": "自动推流测试。\n#Coding #Python",
+        "description": "日常代码与 HomeLab 维护。\n#Coding #Python",
         "category_id": "28", 
         "width": 2560, 
         "height": 1440, 
         "fps": 30, 
-        "rate_control": "CBR",     # Coding is mostly static, CBR is perfectly fine here
-        "bitrate": "6000",         
-        "max_bitrate": "6000",
-        "stream_key_title": "AutoKey-Coding",
-        "keyframe_sec": 2
+        "rate_control": "CBR",
+        "bitrate": "6000",
+        "stream_key_title": "AutoKey-Coding-RTMP",
+        "keyframe_sec": 2,
+        "protocol": "rtmp"   # <--- 新增：指定使用 rtmp 协议
     }
 }
 
 OBS_WS_HOST = "localhost"
 OBS_WS_PORT = 4455
-OBS_WS_PASSWORD = "你的WebSocket密码" # ⚠️ Update this password
+OBS_WS_PASSWORD = "你的WebSocket密码" # ⚠️ 记得替换密码
 
 SCOPES = ['https://www.googleapis.com/auth/youtube']
+
+# --- [ 辅助函数: OBS 路径与状态检查 ] ---
 
 def get_obs_paths(custom_path=None):
     if custom_path and os.path.exists(custom_path):
@@ -76,30 +92,18 @@ def get_obs_paths(custom_path=None):
     return sys_defaults["path"], sys_defaults["cwd"]
 
 def check_and_prepare_obs(obs_path, obs_cwd):
-    print(f">>> Checking OBS Status...")
-    obs_running = False
+    print(f">>> 检查 OBS 状态...")
     for proc in psutil.process_iter(['name']):
         try:
             if 'obs' in proc.info['name'].lower():
-                obs_running = True
-                break
+                return True
         except: pass
+    
+    print("🚀 OBS 未运行，正在启动...")
+    subprocess.Popen([obs_path], cwd=obs_cwd)
+    return False
 
-    if obs_running:
-        try:
-            cl = obs.ReqClient(host=OBS_WS_HOST, port=OBS_WS_PORT, password=OBS_WS_PASSWORD)
-            if cl.get_stream_status().output_active:
-                sys.exit("❌ OBS is currently streaming. Script terminated to prevent conflict.")
-            return True
-        except Exception as e:
-            sys.exit(f"❌ Cannot connect to OBS WebSocket: {e}. Check your password and port.")
-    else:
-        print("🚀 OBS is not running. Launching process...")
-        if obs_cwd:
-            subprocess.Popen([obs_path], cwd=obs_cwd)
-        else:
-            subprocess.Popen([obs_path])
-        return False
+# --- [ YouTube API 交互 ] ---
 
 def authenticate_youtube():
     creds = None
@@ -116,7 +120,10 @@ def authenticate_youtube():
     return build('youtube', 'v3', credentials=creds)
 
 def prepare_youtube_stream(youtube, config):
-    print(f"Configuring YouTube Broadcast...")
+    protocol = config.get('protocol', 'rtmp').lower()
+    print(f">>> 正在配置 YouTube {protocol.upper()} 直播间...")
+    
+    # 1. 创建 Broadcast
     broadcast = youtube.liveBroadcasts().insert(
         part="snippet,status,contentDetails",
         body={
@@ -128,130 +135,153 @@ def prepare_youtube_stream(youtube, config):
             "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False},
             "contentDetails": {
                 "monitorStream": {
-                    "enableMonitorStream": True,
-                    "enableAutoStart": True,
-                    "enableAutoStop": True
-                }
+                    "enableMonitorStream": True  # 必须为 True，HLS 才能生成初始预览画面
+                },
+                "enableAutoStart": True,         # 核心修复：移出 monitorStream，放在 contentDetails 直属层级
+                "enableAutoStop": True           # 核心修复：同上
             }
         }
     ).execute()
     broadcast_id = broadcast['id']
 
+    # 2. 锁定分类
     video_response = youtube.videos().list(part="snippet", id=broadcast_id).execute()
     if video_response['items']:
         video = video_response['items'][0]
         video['snippet']['categoryId'] = config['category_id']
         youtube.videos().update(part="snippet", body=video).execute()
 
-    target_key_name = config.get('stream_key_title', 'Auto Stream Key')
+    # 3. 动态获取或生成推流密钥 (HLS 或 RTMP)
+    target_key_name = config.get('stream_key_title')
     existing_streams = youtube.liveStreams().list(part="snippet,cdn,id", mine=True).execute().get("items", [])
     
     target_stream_id = None
     stream_key = None
     
     for stream in existing_streams:
-        if stream['snippet']['title'] == target_key_name:
+        # 确保名字匹配 且 协议匹配，避免误用旧协议的密钥
+        if stream['snippet']['title'] == target_key_name and stream['cdn'].get('ingestionType') == protocol:
             target_stream_id = stream['id']
             stream_key = stream['cdn']['ingestionInfo']['streamName']
+            print(f"♻️ 找到匹配的 {protocol.upper()} 密钥，正在复用...")
             break
             
     if not target_stream_id:
+        print(f"✨ 正在创建全新的 {protocol.upper()} 推流密钥...")
         new_stream = youtube.liveStreams().insert(
             part="snippet,cdn",
             body={
                 "snippet": {"title": target_key_name},
-                "cdn": {"frameRate": "variable", "ingestionType": "rtmp", "resolution": "variable"}
+                # 根据配置动态注入协议类型
+                "cdn": {"frameRate": "variable", "ingestionType": protocol, "resolution": "variable"}
             }
         ).execute()
         target_stream_id = new_stream['id']
         stream_key = new_stream['cdn']['ingestionInfo']['streamName']
 
     youtube.liveBroadcasts().bind(id=broadcast_id, streamId=target_stream_id, part="id,contentDetails").execute()
-    return stream_key
+    return stream_key, target_stream_id
+
+# --- [ 健康度监控 ] ---
+
+def monitor_stream_health(youtube, stream_id):
+    print("\n--- YouTube 流健康度诊断 ---")
+    for i in range(3):
+        time.sleep(10)
+        res = youtube.liveStreams().list(part="status", id=stream_id).execute()
+        status = res['items'][0]['status']
+        health = status.get('healthStatus', {})
+        
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] 状态: {status['streamStatus']} | 健康度: {health.get('status', 'Waiting...')}")
+        
+        if 'configurationIssues' in health:
+            for issue in health['configurationIssues']:
+                print(f"⚠️ 警告: {issue['type']} - {issue['description']}")
+        
+        if health.get('status') in ['good', 'excellent']:
+            print("✅ YouTube 报告流状态极佳，自动开播应该已触发！")
+            break
+
+# --- [ OBS 配置注入 ] ---
 
 def apply_obs_settings(stream_key, config):
-    print(f"Applying OBS Parameters: {config['width']}x{config['height']} @ {config['fps']}FPS")
+    protocol = config.get('protocol', 'rtmp').lower()
+    print(f">>> 正在应用 OBS 设置 ({protocol.upper()} 模式)...")
     try:
         cl = obs.ReqClient(host=OBS_WS_HOST, port=OBS_WS_PORT, password=OBS_WS_PASSWORD)
         
-        # 1. Profile Management
-        profiles = cl.get_profile_list().profiles
         profile_name = "auto-stream"
+        profiles = cl.get_profile_list().profiles
         temp_profile = "Untitled" if "Untitled" in profiles else profiles[0]
 
         if profile_name not in profiles:
             cl.create_profile(profile_name)
 
-        # Force switch to target profile to write settings
         cl.set_current_profile(profile_name)
-
-        # 2. Hard-lock Resolutions (The 2K Fix)
-        res_w = str(config['width'])
-        res_h = str(config['height'])
-        fps_val = str(config['fps'])
-
-        # We set both Base (Canvas) and Output (Scaled) to 2K
-        cl.set_profile_parameter("Video", "BaseCX", res_w)
-        cl.set_profile_parameter("Video", "BaseCY", res_h)
-        cl.set_profile_parameter("Video", "OutputCX", res_w)
-        cl.set_profile_parameter("Video", "OutputCY", res_h)
-        cl.set_profile_parameter("Video", "FPSCommon", fps_val)
         
-        # 3. Rate Control & Bitrate
-        rc = str(config['rate_control'])
-        bitrate = str(config['bitrate'])
-        max_bitrate = str(config['max_bitrate'])
-        keyframe_val = str(config.get('keyframe_sec', 2))
-
+        # 1. 注入分辨率
+        cl.set_profile_parameter("Video", "BaseCX", str(config['width']))
+        cl.set_profile_parameter("Video", "BaseCY", str(config['height']))
+        cl.set_profile_parameter("Video", "OutputCX", str(config['width']))
+        cl.set_profile_parameter("Video", "OutputCY", str(config['height']))
+        cl.set_profile_parameter("Video", "FPSCommon", str(config['fps']))
+        
+        # 2. 注入 HEVC/编码器设置
         cl.set_profile_parameter("Output", "Mode", "Advanced")
+        cl.set_profile_parameter("AdvOut", "NVENC.Bitrate", str(config['bitrate']))
+        cl.set_profile_parameter("AdvOut", "NVENC.KeyframeIntervalSec", str(config.get('keyframe_sec', 2)))
+        cl.set_profile_parameter("AdvOut", "NVENC.RateControl", config['rate_control'])
         cl.set_profile_parameter("AdvOut", "Track1Bitrate", "128")
-        
-        # Universal encoder param injection
-        for prefix in ["x264", "NVENC", "QSV", "VCE", "VT"]:
-            cl.set_profile_parameter("AdvOut", f"{prefix}RateControl", rc)
-            cl.set_profile_parameter("AdvOut", f"{prefix}Bitrate", bitrate)
-            if rc == "VBR":
-                cl.set_profile_parameter("AdvOut", f"{prefix}MaxBitrate", max_bitrate)
-            # Keyframes
-            kf_field = "KeyintSec" if prefix == "x264" else "KeyframeSecs"
-            if prefix == "VT": kf_field = "KeyframeIntervalSec"
-            cl.set_profile_parameter("AdvOut", f"{prefix}{kf_field}", keyframe_val)
 
-        # 4. THE CRITICAL RESTART: Force OBS to 're-read' the 2K config from disk
-        print("Re-initializing Video Engine for 1440p...")
-        cl.set_current_profile(temp_profile)
-        time.sleep(1.5)  # Wait for engine to unload
-        cl.set_current_profile(profile_name)
-        time.sleep(2.0)  # Wait for engine to load 2K textures
 
-        # 5. Set Key & Go
-        cl.set_stream_service_settings("rtmp_custom", {
-            "server": "rtmp://a.rtmp.youtube.com/live2",
-            "key": stream_key
-        })
+        # 3. 核心修复：只替换推流密钥，绝不破坏现有的 HLS 协议框架
+        try:
+            # 先获取 OBS 当前的推流服务配置 (也就是你刚才手动设好的 YouTube - HLS)
+            current_service = cl.get_stream_service_settings()
+            service_type = current_service.stream_service_type
+            settings = current_service.stream_service_settings
+            
+            # 仅仅把新生成的 HLS 密钥塞进去
+            settings['key'] = stream_key
+            
+            # 原封不动地把配置写回去
+            cl.set_stream_service_settings(service_type, settings)
+            print("✅ 成功将 HLS 密钥注入 OBS！")
+        except Exception as se:
+            print(f"⚠️ 推流服务协议注入异常: {se}")
+
+        # 4. 重载配置使画布生效
+        if temp_profile != profile_name:
+            cl.set_current_profile(temp_profile)
+            time.sleep(1.5)
+            cl.set_current_profile(profile_name)
+            time.sleep(2.0)
         
         cl.start_stream()
-        print(f"🎉 Success! Stream is now LIVE at {res_w}x{res_h}.")
+        print(f"🚀 OBS 推流已启动！(通过 {protocol.upper()} 协议)")
         
     except Exception as e:
-        print(f"❌ OBS Error: {e}")
+        print(f"❌ OBS 错误: {e}")
 
 if __name__ == '__main__':
-    print("\n>>> Starting YouTube Auto-Stream Workflow <<<")
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', '--type', default='dota2')
     parser.add_argument('--obs-path', default=None)
     args = parser.parse_args()
     
-    cfg = STREAM_CONFIGS.get(args.type, STREAM_CONFIGS['dota2'])
+    cfg = STREAM_CONFIGS.get(args.type)
+    if not cfg:
+        sys.exit(f"❌ 找不到配置: {args.type}")
+        
     obs_path, obs_cwd = get_obs_paths(args.obs_path)
-    
     obs_ready = check_and_prepare_obs(obs_path, obs_cwd)
     yt_service = authenticate_youtube()
-    key = prepare_youtube_stream(yt_service, cfg)
     
-    if not obs_ready:
-        print("Waiting for OBS to initialize and load WebSocket (8 seconds)...")
+    key, stream_id = prepare_youtube_stream(yt_service, cfg)
+    
+    if not obs_ready: 
+        print("等待 OBS 初始化 (8秒)...")
         time.sleep(8)
         
     apply_obs_settings(key, cfg)
+    monitor_stream_health(yt_service, stream_id)
