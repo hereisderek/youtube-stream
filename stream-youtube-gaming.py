@@ -28,7 +28,24 @@ STREAM_CONFIGS = {
         "max_bitrate": "13500",
         "stream_key_title": "AutoKey-Dota2-HLS-VBR",
         "keyframe_sec": 2,
-        "protocol": "hls"
+        "protocol": "hls",
+        "enable_auto_start": True,
+        "enable_auto_stop": True
+    },
+    "dota2-cbr": {
+        "title": "Dota 2 实况 (HEVC 2K HLS-CBR)",
+        "description": "NVENC HEVC 自动推流。\n#Dota2 #RTX3070",
+        "category_id": "20",
+        "width": 2560,        
+        "height": 1440,
+        "fps": 60,
+        "rate_control": "CBR",
+        "bitrate": "9000",
+        "stream_key_title": "AutoKey-Dota2-HLS-CBR",
+        "keyframe_sec": 2,
+        "protocol": "hls",
+        "enable_auto_start": True,
+        "enable_auto_stop": True
     },
     "coding": {
         "title": "编程实况: 系统维护与脚本开发",
@@ -48,6 +65,7 @@ STREAM_CONFIGS = {
 OBS_WS_HOST = "localhost"
 OBS_WS_PORT = 4455
 OBS_WS_PASSWORD = "你的WebSocket密码" # ⚠️ 记得替换密码
+OBS_PROFILE_NAME = "auto-stream"
 
 SCOPES = ['https://www.googleapis.com/auth/youtube']
 
@@ -77,19 +95,22 @@ def check_and_prepare_obs(obs_path, obs_cwd):
     
     if obs_running:
         try:
-            # 核心修复：重新加入 WebSocket 状态检查
+            # WebSocket 状态检查
             cl = obs.ReqClient(host=OBS_WS_HOST, port=OBS_WS_PORT, password=OBS_WS_PASSWORD)
             status = cl.get_stream_status()
             if status.output_active:
-                sys.exit("\n❌ 严重错误：检测到 OBS 当前正在直播推流中！\n为防止配置冲突，脚本已安全退出。请先停止推流后再运行本脚本。")
+                sys.exit("\n❌ 检测到 OBS 当前正在直播推流中！\n为防止配置冲突，脚本已安全退出。请先停止推流后再运行本脚本。")
             
             print("✅ 检测到 OBS 已运行且处于空闲状态。")
             return True
         except Exception as e:
-            sys.exit(f"\n❌ 严重错误：OBS 正在运行，但无法连接 WebSocket。\n请检查 OBS 设置或密码是否正确。报错信息: {e}")
+            sys.exit(f"\n❌ OBS 正在运行，但无法连接 WebSocket。\n请检查 OBS 设置或密码是否正确。报错信息: {e}")
     else:
-        print("🚀 OBS 未运行，正在自动启动...")
-        subprocess.Popen([obs_path], cwd=obs_cwd)
+        print("🚀 OBS 未运行，正在自动启动并最小化到托盘...")
+        if obs_cwd:
+            subprocess.Popen([obs_path, '--minimize-to-tray'], cwd=obs_cwd)
+        else:
+            subprocess.Popen([obs_path, '--minimize-to-tray'])
         return False
 
 # --- [ YouTube API 交互 ] ---
@@ -112,6 +133,9 @@ def prepare_youtube_stream(youtube, config):
     protocol = config.get('protocol', 'rtmp').lower()
     print(f">>> 正在配置 YouTube {protocol.upper()} 直播间...")
     
+    # determine auto start/stop from config, defaulting to True when not provided
+    auto_start = config.get('enable_auto_start', True)
+    auto_stop = config.get('enable_auto_stop', True)
     broadcast = youtube.liveBroadcasts().insert(
         part="snippet,status,contentDetails",
         body={
@@ -123,8 +147,8 @@ def prepare_youtube_stream(youtube, config):
             "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False},
             "contentDetails": {
                 "monitorStream": {"enableMonitorStream": True},
-                "enableAutoStart": True,
-                "enableAutoStop": True
+                "enableAutoStart": auto_start,
+                "enableAutoStop": auto_stop
             }
         }
     ).execute()
@@ -192,7 +216,7 @@ def apply_obs_settings(stream_key, config):
     try:
         cl = obs.ReqClient(host=OBS_WS_HOST, port=OBS_WS_PORT, password=OBS_WS_PASSWORD)
         
-        profile_name = "auto-stream"
+        profile_name = OBS_PROFILE_NAME
         profiles = cl.get_profile_list().profiles
         temp_profile = "Untitled" if "Untitled" in profiles else profiles[0]
 
@@ -279,15 +303,24 @@ if __name__ == '__main__':
         
     obs_path, obs_cwd = get_obs_paths(args.obs_path)
     
-    # 这里是防撞机制发挥作用的地方
     obs_ready = check_and_prepare_obs(obs_path, obs_cwd)
-    
     yt_service = authenticate_youtube()
     key, stream_id = prepare_youtube_stream(yt_service, cfg)
     
-    if not obs_ready: 
-        print("等待 OBS 初始化 (8秒)...")
-        time.sleep(8)
-        
+    if not obs_ready:
+        # poll every 5 seconds for a limited number of checks
+        max_checks = 3  # adjust or make configurable
+        for attempt in range(1, max_checks + 1):
+            print(f"等待 OBS 初始化 ({attempt}/{max_checks})...")
+            time.sleep(5)
+            try:
+                obs_ready = check_and_prepare_obs(obs_path, obs_cwd)
+            except Exception:
+                obs_ready = False
+            if obs_ready:
+                print("OBS 已准备就绪。")
+                break
+        if not obs_ready:
+            print("⚠️ OBS 在给定时间内仍未准备就绪，继续执行可能会失败。")
     apply_obs_settings(key, cfg)
     monitor_stream_health(yt_service, stream_id)
