@@ -188,7 +188,7 @@ def monitor_stream_health(youtube, stream_id):
 
 def apply_obs_settings(stream_key, config):
     protocol = config.get('protocol', 'rtmp').lower()
-    print(f">>> 正在应用 OBS 设置 ({protocol.upper()} 模式)...")
+    print(f">>> 正在应用跨平台 OBS 设置 ({protocol.upper()} 模式)...")
     try:
         cl = obs.ReqClient(host=OBS_WS_HOST, port=OBS_WS_PORT, password=OBS_WS_PASSWORD)
         
@@ -201,19 +201,49 @@ def apply_obs_settings(stream_key, config):
 
         cl.set_current_profile(profile_name)
         
+        # 1. 覆盖通用画面分辨率与帧率 (全平台通用)
         cl.set_profile_parameter("Video", "BaseCX", str(config['width']))
         cl.set_profile_parameter("Video", "BaseCY", str(config['height']))
         cl.set_profile_parameter("Video", "OutputCX", str(config['width']))
         cl.set_profile_parameter("Video", "OutputCY", str(config['height']))
         cl.set_profile_parameter("Video", "FPSCommon", str(config['fps']))
         
-        cl.set_profile_parameter("Output", "Mode", "Advanced")
-        cl.set_profile_parameter("AdvOut", "NVENC.Bitrate", str(config['bitrate']))
-        cl.set_profile_parameter("AdvOut", "NVENC.MaxBitrate", str(config.get('max_bitrate', config['bitrate'])))
-        cl.set_profile_parameter("AdvOut", "NVENC.KeyframeIntervalSec", str(config.get('keyframe_sec', 2)))
-        cl.set_profile_parameter("AdvOut", "NVENC.RateControl", config['rate_control'])
-        cl.set_profile_parameter("AdvOut", "Track1Bitrate", "128")
+        # 2. 覆盖码率与关键帧 (全硬件平台盲注策略)
+        # 不修改 Output Mode，完全尊重并复用你在 OBS 软件里手动选择的编码器！
+        rc = config['rate_control']
+        bit = str(config['bitrate'])
+        max_bit = str(config.get('max_bitrate', config['bitrate']))
+        kf = str(config.get('keyframe_sec', 2))
 
+        cl.set_profile_parameter("AdvOut", "Track1Bitrate", "128") # 音频底线
+
+        # ---> NVIDIA GPU (NVENC 新旧版)
+        cl.set_profile_parameter("AdvOut", "NVENC.Bitrate", bit)
+        cl.set_profile_parameter("AdvOut", "NVENC.MaxBitrate", max_bit)
+        cl.set_profile_parameter("AdvOut", "NVENC.KeyframeIntervalSec", kf)
+        cl.set_profile_parameter("AdvOut", "NVENC.RateControl", rc)
+        cl.set_profile_parameter("AdvOut", "NVENCBitrate", bit)         # 兼容旧版本插件
+        cl.set_profile_parameter("AdvOut", "NVENCRateControl", rc)
+
+        # ---> Apple macOS (VideoToolbox)
+        cl.set_profile_parameter("AdvOut", "VTBitrate", bit)
+        cl.set_profile_parameter("AdvOut", "VTMaxBitrate", max_bit)
+        cl.set_profile_parameter("AdvOut", "VTKeyframeIntervalSec", kf)
+        cl.set_profile_parameter("AdvOut", "VTERateControl", rc)
+
+        # ---> CPU 通用编码 (x264)
+        cl.set_profile_parameter("AdvOut", "x264Bitrate", bit)
+        cl.set_profile_parameter("AdvOut", "x264RateControl", rc)
+        cl.set_profile_parameter("AdvOut", "x264KeyintSec", kf)
+
+        # ---> AMD GPU (AMF)
+        cl.set_profile_parameter("AdvOut", "VCEBitrate", bit)
+        cl.set_profile_parameter("AdvOut", "VCERateControl", rc)
+
+        # ---> 兼容处于“简单 (Simple)”输出模式的情况
+        cl.set_profile_parameter("SimpleOutput", "VBitrate", bit)
+
+        # 3. 安全注入推流密钥，绝不破坏现有 HLS/RTMP 协议框架
         try:
             current_service = cl.get_stream_service_settings()
             service_type = current_service.stream_service_type
@@ -224,6 +254,7 @@ def apply_obs_settings(stream_key, config):
         except Exception as se:
             print(f"⚠️ 推流服务密钥注入异常: {se}")
 
+        # 4. 重载配置，强制显卡加载 2K 画布
         if temp_profile != profile_name:
             cl.set_current_profile(temp_profile)
             time.sleep(1.5)
@@ -231,11 +262,11 @@ def apply_obs_settings(stream_key, config):
             time.sleep(2.0)
         
         cl.start_stream()
-        print(f"🚀 OBS 推流已启动！(通过 {protocol.upper()} 协议)")
+        print(f"🚀 OBS 推流已启动！(协议: {protocol.upper()} | 已复用当前设备硬件加速)")
         
     except Exception as e:
         print(f"❌ OBS 错误: {e}")
-
+        
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', '--type', default='dota2')
