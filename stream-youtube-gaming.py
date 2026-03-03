@@ -218,10 +218,17 @@ def apply_obs_settings(stream_key, config):
         
         profile_name = OBS_PROFILE_NAME
         profiles = cl.get_profile_list().profiles
-        temp_profile = "Untitled" if "Untitled" in profiles else profiles[0]
 
         if profile_name not in profiles:
+            print(f"✨ 正在从 'Untitled' 复制并创建新配置文件: {profile_name}...")
+            # 如果 'Untitled' 不存在，则使用列表中的第一个配置文件作为源
+            source_profile = "Untitled" if "Untitled" in profiles else profiles[0]
+            
+            # 先切换到源配置文件以确保复刻其设置（OBS WebSocket 特性）
+            cl.set_current_profile(source_profile)
+            time.sleep(1)
             cl.create_profile(profile_name)
+            print(f"✅ 已基于 {source_profile} 创建配置文件。")
 
         cl.set_current_profile(profile_name)
         
@@ -278,7 +285,9 @@ def apply_obs_settings(stream_key, config):
         except Exception as se:
             print(f"⚠️ 推流服务密钥注入异常: {se}")
 
+
         # 4. 重载配置，强制显卡加载 2K 画布
+        temp_profile = "Untitled" if "Untitled" in profiles else profiles[0]
         if temp_profile != profile_name:
             cl.set_current_profile(temp_profile)
             time.sleep(1.5)
