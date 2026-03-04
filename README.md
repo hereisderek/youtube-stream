@@ -7,7 +7,7 @@ This is a highly automated, cross-platform streaming controller for YouTube. Uti
 * `stream-youtube-gaming.py`: **Core Engine**. Responsible for checking and launching OBS in the background, communicating with the YouTube API to create/modify broadcasts, dynamically generating or reusing stream keys, and injecting resolutions, bitrates, and keyframes into OBS via WebSocket before starting the stream.
 * `stop_stream.py`: **One-Click Stop Engine**. Sends a stop-streaming command to OBS, gracefully terminates the OBS process, and calls the YouTube API to transition the active broadcast status to `complete` (saving it as a VOD).
 * `requirements.txt`: Python dependencies list. Includes essential modules like `obsws-python` and `google-api-python-client`.
-* `start_stream.bat` / `.sh`: **Windows / macOS & Linux Launchers**. Automatically creates a `.venv` virtual environment, silently installs dependencies, and accepts configuration arguments (e.g., `dota2` or `coding`).
+* `start_stream.bat` / `.sh`: **Windows / macOS & Linux Launchers**. Automatically creates a virtual environment (default `.venv`), silently installs dependencies, and accepts configuration arguments (e.g., `dota2` or `coding`). You can also supply a custom venv directory as the second parameter or set the `CUSTOM_VENV_DIR` environment variable.
 * `stop_stream.bat` / `.sh`: **Quick Stop Launchers**. Double-click to instantly terminate the stream directly from the terminal without opening a browser.
 * `credentials.json`: *(User provided)* The YouTube API OAuth 2.0 credentials file downloaded from the Google Cloud Console.
 * `token.json`: *(Auto-generated)* A local token file generated after the first authorized run, used for subsequent passwordless API calls.

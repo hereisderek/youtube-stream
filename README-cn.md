@@ -7,7 +7,7 @@
 * `stream-youtube-gaming.py`: **核心引擎**。负责检查并启动后台 OBS，与 YouTube API 交互创建/修改直播间，动态生成或复用推流密钥，并通过 WebSocket 强行将对应的分辨率、码率、关键帧注入 OBS 配置并开启推流。
 * `stop_stream.py`: **一键下播引擎**。负责向 OBS 发送停止推流指令，优雅关闭 OBS 进程，并调用 YouTube API 将当前活跃的直播状态标记为 `complete`（结束并转为录播）。
 * `requirements.txt`: Python 依赖清单。包含 `obsws-python`, `google-api-python-client` 等必要模块。
-* `start_stream.bat` / `.sh`: **Windows / macOS & Linux 启动入口**。自动创建 `.venv` 虚拟环境，静默安装依赖，并允许传入配置参数（如 `dota2` 或 `coding`）。
+* `start_stream.bat` / `.sh`: **Windows / macOS & Linux 启动入口**。自动创建虚拟环境（默认 `.venv`），静默安装依赖，并允许传入配置参数（如 `dota2` 或 `coding`）。也可通过第二个参数或 `CUSTOM_VENV_DIR` 环境变量提供自定义 venv 目录。
 * `stop_stream.bat` / `.sh`: **下播快捷入口**。双击即可在终端内秒关直播，无需打开浏览器。
 * `credentials.json`: *(需用户自备)* Google Cloud Console 下载的 YouTube API OAuth 2.0 凭证文件。
 * `token.json`: *(自动生成)* 脚本首次运行授权后生成的本地 Token 文件，用于后续免密调用 API。

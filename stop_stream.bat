@@ -6,7 +6,7 @@ chcp 65001 >nul
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo [ERROR] 在此系统中找不到 Python。
-    set /p INSTALL_PY="是否要使用 winget 自动安装最新的 Python 3? (y/n): "
+    set /p INSTALL_PY="是否要使用 winget 自动安装最新的 Python 3? ^(y/n^): " 
     if /i "%INSTALL_PY%"=="y" (
         echo [INFO] 正在尝试通过 winget 安装 Python...
         winget install -e --id Python.Python.3
@@ -27,7 +27,7 @@ if %errorlevel% neq 0 (
 
 set VENV_DIR=.venv
 
-echo [INFO] 正在执行一键下播...
+echo "[INFO] 正在执行一键下播..."
 "%VENV_DIR%\Scripts\python.exe" stop_stream.py
 
 echo.

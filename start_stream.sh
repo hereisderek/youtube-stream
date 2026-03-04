@@ -7,17 +7,20 @@
 # ==========================================
 CUSTOM_OBS_PATH=""
 
-VENV_DIR=".venv"
+# stream type and optional venv dir (2nd arg or CUSTOM_VENV_DIR)
+STREAM_TYPE=${1:-dota2}
+
+# determine venv directory: 2nd arg overrides env var, else default
+VENV_DIR=${2:-${CUSTOM_VENV_DIR:-.venv}}
 
 if [ ! -f "$VENV_DIR/bin/python" ]; then
-    echo "[INFO] 正在创建虚拟环境..."
+    echo "[INFO] 正在创建虚拟环境 ($VENV_DIR)..."
     python3 -m venv "$VENV_DIR"
 fi
 
 echo "[INFO] 检查并更新依赖..."
 "$VENV_DIR/bin/python" -m pip install -r requirements.txt >/dev/null 2>&1
 
-STREAM_TYPE=${1:-dota2}
 
 OBS_ARG=""
 if [ -n "$CUSTOM_OBS_PATH" ]; then

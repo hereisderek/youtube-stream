@@ -13,9 +13,9 @@ set CUSTOM_OBS_PATH=
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo [ERROR] 在此系统中找不到 Python。
-    set /p INSTALL_PY="是否要使用 winget 自动安装最新的 Python 3? (y/n): "
+    set /p INSTALL_PY="是否要使用 winget 自动安装最新的 Python 3? ^(y/n^): " 
     if /i "%INSTALL_PY%"=="y" (
-        echo [INFO] 正在尝试通过 winget 安装 Python...
+        echo "[INFO] 正在尝试通过 winget 安装 Python..."
         winget install -e --id Python.Python.3
         if %errorlevel% neq 0 (
             echo [ERROR] 自动安装失败。请手动安装 Python 3 并将其添加到 PATH 环境变量。
@@ -32,18 +32,26 @@ if %errorlevel% neq 0 (
     )
 )
 
-set VENV_DIR=.venv
+:: allow optional venv directory via 2nd argument or CUSTOM_VENV_DIR env var
+set "STREAM_TYPE=%~1"
+if "%STREAM_TYPE%"=="" set "STREAM_TYPE=dota2"
 
-if not exist "%VENV_DIR%\Scripts\python.exe" (
-    echo [INFO] 正在创建虚拟环境...
-    python -m venv %VENV_DIR%
+set "VENV_DIR=%~2"
+if "%VENV_DIR%"=="" (
+    if defined CUSTOM_VENV_DIR (
+        set VENV_DIR=%CUSTOM_VENV_DIR%
+    ) else (
+        set VENV_DIR=.venv
+    )
 )
 
-echo [INFO] 检查并更新依赖...
-"%VENV_DIR%\Scripts\python.exe" -m pip install -r requirements.txt >nul 2>&1
+if not exist "%VENV_DIR%\Scripts\python.exe" (
+    echo "[INFO] 正在创建虚拟环境 (%VENV_DIR%)..."
+    python -m venv "%VENV_DIR%"
+)
 
-set STREAM_TYPE=%1
-if "%STREAM_TYPE%"=="" set STREAM_TYPE=dota2
+echo "[INFO] 检查并更新依赖..."
+"%VENV_DIR%\Scripts\python.exe" -m pip install -r requirements.txt >nul 2>&1
 
 :: 构建 OBS 路径参数
 set OBS_ARG=
@@ -51,7 +59,7 @@ if not "%CUSTOM_OBS_PATH%"=="" (
     set OBS_ARG=--obs-path "%CUSTOM_OBS_PATH%"
 )
 
-echo [INFO] 正在启动 [%STREAM_TYPE%] 直播流...
+echo "[INFO] 正在启动 [%STREAM_TYPE%] 直播流..."
 "%VENV_DIR%\Scripts\python.exe" stream-youtube-gaming.py --type %STREAM_TYPE% %OBS_ARG%
 
 echo.
