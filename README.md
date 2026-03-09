@@ -37,6 +37,8 @@ When the script launches OBS, it will run silently in the system tray without in
 Ensure `credentials.json` is located in the project root directory. Update your OBS WebSocket password in both `stream-youtube-gaming.py` and `stop_stream.py`:
 `OBS_WS_PASSWORD = "your_real_password"`
 
+> ⚠️ **Token Expiry Notice:** If you ever encounter an error like `invalid_grant: Token has been expired or revoked.`, simply delete the `token.json` file and rerun the script. The updated code now detects refresh failures, removes the stale token, and prompts you to re-authorize automatically.
+
 ### 2. One-Click Start
 Use the terminal or double-click to execute the script. You can append the configuration name (defaults to `dota2`):
 * **Windows:**

@@ -11,6 +11,7 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+from google.auth.exceptions import RefreshError
 
 # ==========================================
 # 1. 动态配置字典
@@ -121,8 +122,17 @@ def authenticate_youtube():
         creds = Credentials.from_authorized_user_file('token.json', SCOPES)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+            except RefreshError as e:
+                # expired/revoked tokens raise RefreshError; remove and re-auth
+                print(f"⚠️ 无法刷新凭证 ({e})；令牌已过期或吊销，将重新获取授权。")
+                creds = None
+                try:
+                    os.remove('token.json')
+                except OSError:
+                    pass
+        if not creds or not creds.valid:
             flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
             creds = flow.run_local_server(port=0)
         with open('token.json', 'w') as token:
